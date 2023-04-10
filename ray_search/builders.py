@@ -1,6 +1,7 @@
 import abc
 from typing import Optional, List, Type, Union
 
+import pandas as pd
 import ray
 
 from ray_search.actors import VectorizerActor, SearchActor, Searchers, Vectorizers, is_vectorizer_func, \
@@ -188,6 +189,24 @@ class SearchBuilder(RayChunkedActorBuilder):
         return [res for res_list in ray.get(results) for res in res_list]
 
 
+class ChunkableProxy:
+
+    def __init__(self, item: Union[pd.Series, List[str]]):
+        self.item = item
+
+    def __getitem__(self, r):
+        if isinstance(r, int):
+            if isinstance(self.item, pd.Series):
+                return self.item.iloc[r]
+            else:
+                return self.item[r]
+        if isinstance(r, slice):
+            assert r.step is None, "Slicing with steps is not supported. Please pick contiguous sections"
+            if isinstance(self.item, pd.Series):
+                return self.item[r.start:r.stop].astype('str').tolist()
+            else:
+                return self.item[r.start:r.stop]
+
 class SearchMatrixBuilder(RayChunkedActorBuilder):
 
     def __init__(self):
@@ -252,7 +271,7 @@ class SearchMatrixBuilder(RayChunkedActorBuilder):
             matrix_actors = [ray_actor.remote(*actor_args) for _ in range(num_actors)]
             for idx, window in enumerate(window_iter(self._limit or len(self._ids), self._chunk_size)):
                 ids = self._ids[window.start:window.end]
-                texts = self._texts[window.start:window.end]
+                texts = ChunkableProxy(self._texts)[window.start:window.end]
                 matrix_actors[idx % len(matrix_actors)].ingest_texts.remote(ids, texts)
         return MatrixWithIdsFragmentManager.consume_actors(
             [actor.get_matrix.remote() for actor in matrix_actors], merge=merge
