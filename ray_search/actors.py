@@ -119,7 +119,7 @@ class SpladeVectorizer(VectorizerActor):
 
     def __init__(self, *args):
         super().__init__(*args)
-        self.ingest_chunk_size = 32  # overwrite chunksize
+        self.ingest_chunk_size = int(os.environ.get("ITERATOR_CHUNK_SIZE" , "32"))  # overwrite chunksize
         self.model_id = os.environ.get("SPLADE_MODEL_NAME", 'naver/splade-cocondenser-ensembledistil')
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_id)
         self.model = AutoModelForMaskedLM.from_pretrained(self.model_id)
@@ -173,7 +173,7 @@ class SentenceTransformerDenseVectorizer(VectorizerActor):
 
     def __init__(self, *args):
         super().__init__(*args)
-        self.ingest_chunk_size = 32  # construction will always yield 0
+        self.ingest_chunk_size = int(os.environ.get("ITERATOR_CHUNK_SIZE" , "32"))  # construction will always yield 0
         self.model = self.transformer_model()
 
     def _ingest_text_chunk(self, ids: List[str], texts: List[str]) -> None:
@@ -214,7 +214,7 @@ class CustomFunctionChunkedVectorizer(CustomFunctionVectorizer):
 
     def __init__(self, *args):
         super().__init__(*args)
-        self.ingest_chunk_size = get_wrapped_func_attr(self._ingest_text_chunk_func, "chunk_size") or 32
+        self.ingest_chunk_size = get_wrapped_func_attr(self._ingest_text_chunk_func, "chunk_size") or int(os.environ.get("ITERATOR_CHUNK_SIZE" , "32"))
 
     def _ingest_text_chunk(self, ids: List[str], texts: List[str]) -> None:
         self._ingest_text_chunk_func(self, ids, texts)

@@ -1,11 +1,12 @@
 import json
 from dataclasses import dataclass
 from json import JSONEncoder
-from typing import Iterator, List, Dict, Union, Optional
+from typing import Iterator, List, Dict, Union, Optional, Any
 
 import numpy as np
 import pandas as pd
 import ray
+from ray.util.spark import setup_ray_cluster, shutdown_ray_cluster
 
 
 @dataclass
@@ -33,7 +34,7 @@ class Memory:
         return self._bytes
 
     @classmethod
-    def from_gb(cls, num_gb: int):
+    def in_gb(cls, num_gb: int):
         return cls(num_gb * 1024 ** 3)
 
     @classmethod
@@ -100,20 +101,26 @@ class SearchResult:
               content_map: Optional[Dict[str, str]] = None) -> pd.DataFrame:
         return pd.DataFrame.from_records(SearchResult.to_list(results, unnest, content_map))
 
-from ray.util.spark import setup_ray_cluster, shutdown_ray_cluster
-
 class RayCluster:
 
-    def __init__(self, num_worker_nodes: int = 2, num_cpus_per_node: int = 4):
+    def __init__(self, num_worker_nodes: int = 2, num_cpus_per_node: int = 4, runtime_env: Dict[str, Any] = None):
         self.num_worker_nodes = num_worker_nodes
         self.num_cpus_per_node = num_cpus_per_node
+        self.runtime_env = runtime_env
+
+    def max_parallel_workers(self, num_cpus_per_worker: int = 1):
+        return int((self.num_worker_nodes * self.num_cpus_per_node) / num_cpus_per_worker)
 
     def __enter__(self):
         setup_ray_cluster(
             num_worker_nodes=self.num_worker_nodes,
             num_cpus_per_node=self.num_cpus_per_node,
         )
-        ray.init()
+        if self.runtime_env is not None:
+          ray.init(runtime_env=self.runtime_env)
+        else:
+          ray.init()
+        return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         shutdown_ray_cluster()

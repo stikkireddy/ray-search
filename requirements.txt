@@ -6,3 +6,4 @@ torch
 numpy
 scipy
 cloudpickle
+chromadb
