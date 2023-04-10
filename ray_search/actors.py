@@ -6,7 +6,9 @@ from typing import Optional, List, Type, Any, Callable
 
 import faiss
 import numpy as np
+import ray
 import torch
+from ray.types import ObjectRef
 from sklearn.feature_extraction.text import TfidfVectorizer
 from transformers import AutoTokenizer, AutoModelForMaskedLM
 
@@ -112,6 +114,23 @@ class VectorizerActor(abc.ABC):
     @staticmethod
     def is_dense() -> Optional[bool]:
         return None
+
+class MatrixWithIdsFragmentManager:
+
+    @classmethod
+    def consume_actors(cls, remote_vectorizer_actors: List[ObjectRef[VectorizerActor]], merge=True):
+        unfinished_actors = remote_vectorizer_actors
+        matrix_array: List[MatrixWithIds] = []
+        while len(unfinished_actors):
+            done_id, unfinished_actors = ray.wait(remote_vectorizer_actors)
+            if merge is True:
+                matrix_array.append(ray.get(done_id[0]))
+            del done_id
+
+        return MatrixWithIds.merge(*matrix_array)
+
+
+
 
 
 # @ray.remote(num_cpus=1, memory=1024 * 1024 * 1024 * 1)

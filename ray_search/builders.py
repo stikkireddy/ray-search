@@ -4,7 +4,7 @@ from typing import Optional, List, Type, Union
 import ray
 
 from ray_search.actors import VectorizerActor, SearchActor, Searchers, Vectorizers, is_vectorizer_func, \
-    SetupFuncType, IngestionFuncType, get_wrapped_func_attr
+    SetupFuncType, IngestionFuncType, get_wrapped_func_attr, MatrixWithIdsFragmentManager
 from ray_search.index import MatrixWithIds, DistanceThreshold
 from ray_search.sinks import SinkConfiguration
 from ray_search.utils import window_iter, Memory, SearchResult
@@ -28,7 +28,7 @@ class RayChunkedActorBuilder(Runner):
         self._chunk_size = 128  # magic number multiple of 2 try anywhere from 128 to 1024
         self._limit = None
         self._cpus_per_worker = 1
-        self._memory_per_worker: Memory = Memory.from_gb(1)
+        self._memory_per_worker: Memory = Memory.in_gb(1)
         self._actor_class = None
 
     def with_workers(self, workers: int) -> 'RayChunkedActorBuilder':
@@ -168,6 +168,7 @@ class SearchBuilder(RayChunkedActorBuilder):
         assert self._actor_class is not None, "Search strategy must be provided, please use with_searcher(...)"
 
     def _run(self):
+        #
         ray_actor = ray.remote(num_cpus=self._cpus_per_worker, memory=self._memory_per_worker.bytes)(self._actor_class)
         matrix_remote = ray.put(self._matrix)  # only need one instance of this object
         search_actors = [ray_actor.remote(matrix_remote) for _ in range(self._num_workers)]
@@ -234,27 +235,27 @@ class SearchMatrixBuilder(RayChunkedActorBuilder):
     def make_content_map(self):
         return dict(zip(self._ids, self._texts))
 
-    def _run(self) -> MatrixWithIds:
+    def _run(self, merge=True) -> MatrixWithIds:
         # print(f"Running {self}")
         # make actors dynamically, and if limit is there do not more actors than the limit
         ray_actor = ray.remote(num_cpus=self._cpus_per_worker, memory=self._memory_per_worker.bytes)(self._actor_class)
         actor_args = [self._setup_hook, self._ingest_content_chunk_func]
         if self._actor_class.supports_chunking() is False:
-            splade_actors = [ray_actor.remote(*actor_args)]
+            matrix_actors = [ray_actor.remote(*actor_args)]
             if self._limit is not None:
-                splade_actors[0].ingest_texts.remote(self._ids[0:self._limit], self._texts[0:self._limit])
+                matrix_actors[0].ingest_texts.remote(self._ids[0:self._limit], self._texts[0:self._limit])
             else:
-                splade_actors[0].ingest_texts.remote(self._ids, self._texts)
+                matrix_actors[0].ingest_texts.remote(self._ids, self._texts)
         else:
             num_actors = self._num_workers if self._limit is None else min(self._num_workers, self._limit)
             num_actors = min(num_actors, len(self._ids))
-            splade_actors = [ray_actor.remote(*actor_args) for _ in range(num_actors)]
+            matrix_actors = [ray_actor.remote(*actor_args) for _ in range(num_actors)]
             for idx, window in enumerate(window_iter(self._limit or len(self._ids), self._chunk_size)):
                 ids = self._ids[window.start:window.end]
                 texts = self._texts[window.start:window.end]
-                splade_actors[idx % len(splade_actors)].ingest_texts.remote(ids, texts)
-        return MatrixWithIds.merge(
-            *[ray.get(actor.get_matrix.remote()) for actor in splade_actors]
+                matrix_actors[idx % len(matrix_actors)].ingest_texts.remote(ids, texts)
+        return MatrixWithIdsFragmentManager.consume_actors(
+            [actor.get_matrix.remote() for actor in matrix_actors], merge=merge
         )
 
     def to_sink(self, sink_klass: SinkConfiguration):
