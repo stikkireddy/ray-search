@@ -84,12 +84,7 @@ class VectorizerConfig:
 
 class VectorizerActor(abc.ABC):
 
-    def __init__(self,
-                 config: VectorizerConfig = None,
-                 # setup_hook: Optional[SetupFuncType] = None,
-                 # ingest_content_chunk_func: Optional[IngestionFuncType] = None,
-                 # memory_class: Optional[VmType] = None
-                 ):
+    def __init__(self, config: VectorizerConfig = None):
         self.config = config
         self.matrix_with_ids = MatrixWithIds.from_empty()
         self.ingest_chunk_size = None
