@@ -1,0 +1,8 @@
+ray
+pandas
+scikit-learn
+git+https://github.com/naver/splade.git # needs rustc and git-lfs use GIT_LFS_SKIP_SMUDGE=1
+torch
+numpy
+scipy
+cloudpickle
