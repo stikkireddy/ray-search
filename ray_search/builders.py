@@ -4,6 +4,7 @@ from typing import Optional, List, Type, Union, Dict, Any
 import pandas as pd
 import ray
 
+from ray_search.search import SearchActor, Searchers
 from ray_search.index import MatrixWithIds, DistanceThreshold
 from ray_search.sinks import SinkConfiguration
 from ray_search.utils import window_iter, Memory, SearchResult, RayCluster
