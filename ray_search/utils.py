@@ -1,5 +1,6 @@
 import json
 from dataclasses import dataclass
+from enum import Enum
 from json import JSONEncoder
 from typing import Iterator, List, Dict, Union, Optional, Any
 
@@ -19,6 +20,12 @@ def window_iter(total_window_size: int, chunk_size: int) -> Iterator[Window]:
     # looping till length l
     for idx, i in enumerate(range(0, total_window_size, chunk_size)):
         yield Window(i, min(i + chunk_size, total_window_size))
+
+
+class VmType(Enum):
+    LOW_MEMORY = 1
+    MED_MEMORY = 2
+    HIGH_MEMORY = 3
 
 
 class Memory:
@@ -101,26 +108,38 @@ class SearchResult:
               content_map: Optional[Dict[str, str]] = None) -> pd.DataFrame:
         return pd.DataFrame.from_records(SearchResult.to_list(results, unnest, content_map))
 
+
 class RayCluster:
 
-    def __init__(self, num_worker_nodes: int = 2, num_cpus_per_node: int = 4, runtime_env: Dict[str, Any] = None):
+    def __init__(self, num_worker_nodes: int = 2,
+                 num_cpus_per_node: int = 4,
+                 runtime_env: Dict[str, Any] = None,
+                 num_gpus_per_node: Optional[int] = None):
         self.num_worker_nodes = num_worker_nodes
         self.num_cpus_per_node = num_cpus_per_node
         self.runtime_env = runtime_env
+        self.num_gpus_per_node = num_gpus_per_node
 
     def max_parallel_workers(self, num_cpus_per_worker: int = 1):
         return int((self.num_worker_nodes * self.num_cpus_per_node) / num_cpus_per_worker)
 
-    def __enter__(self):
+    def start(self):
         setup_ray_cluster(
             num_worker_nodes=self.num_worker_nodes,
             num_cpus_per_node=self.num_cpus_per_node,
+            num_gpus_per_node=self.num_gpus_per_node
         )
         if self.runtime_env is not None:
-          ray.init(runtime_env=self.runtime_env)
+            ray.init(runtime_env=self.runtime_env)
         else:
-          ray.init()
+            ray.init()
+
+    def stop(self):
+        shutdown_ray_cluster()
+
+    def __enter__(self):
+        self.start()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        shutdown_ray_cluster()
+        self.stop()

@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from typing import List, Dict, Optional, Tuple, Union
 
 import numpy as np
-import pandas as pd
 import torch
 from scipy.sparse import csr_matrix, vstack
 from sklearn.metrics.pairwise import cosine_distances
@@ -229,29 +228,28 @@ def calculate_cosine_distance(
 
     return matches
 
-
-if __name__ == "__main__":
-    from sentence_transformers import SentenceTransformer
-
-    model = SentenceTransformer('paraphrase-MiniLM-L6-v2')
-    matrix = MatrixWithIds.from_empty()
-    # Sentences we want to encode. Example:
-    # sentence = [
-    #     'This framework generates embeddings for each input sentence',
-    #     "This framework is generating another sentence"
-    # ]
-    data = pd.read_csv("../data/luggage_review.csv")
-    ids = data['review_id'].values.astype('U').tolist()[0:100]
-    texts = data['review_body_trunc'].values.astype('U').tolist()[0:100]
-
-    # Sentences are encoded by calling model.encode()
-    embedding = model.encode(texts)
-    # print(embedding)
-    # print(type(embedding))
-
-    matrix.add_matrix(ids, embedding)
-    matrix.add_matrix([f"{i}-{i}" for i in ids], embedding)
-    # matrix.add_matrix(["id3", "id4"], embedding)
-    print(matrix.matrix.shape)
-    print(matrix.num_cols())
-    print(matrix.approx_size_bytes())
+# if __name__ == "__main__":
+#     from sentence_transformers import SentenceTransformer
+#
+#     model = SentenceTransformer('paraphrase-MiniLM-L6-v2')
+#     matrix = MatrixWithIds.from_empty()
+#     # Sentences we want to encode. Example:
+#     # sentence = [
+#     #     'This framework generates embeddings for each input sentence',
+#     #     "This framework is generating another sentence"
+#     # ]
+#     data = pd.read_csv("../data/luggage_review.csv")
+#     ids = data['review_id'].values.astype('U').tolist()[0:100]
+#     texts = data['review_body_trunc'].values.astype('U').tolist()[0:100]
+#
+#     # Sentences are encoded by calling model.encode()
+#     embedding = model.encode(texts)
+#     # print(embedding)
+#     # print(type(embedding))
+#
+#     matrix.add_matrix(ids, embedding)
+#     matrix.add_matrix([f"{i}-{i}" for i in ids], embedding)
+#     # matrix.add_matrix(["id3", "id4"], embedding)
+#     print(matrix.matrix.shape)
+#     print(matrix.num_cols())
+#     print(matrix.approx_size_bytes())

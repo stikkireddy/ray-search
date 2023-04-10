@@ -1,14 +1,15 @@
 import abc
-from typing import Optional, List, Type, Union
+from typing import Optional, List, Type, Union, Dict, Any
 
 import pandas as pd
 import ray
 
-from ray_search.actors import VectorizerActor, SearchActor, Searchers, Vectorizers, is_vectorizer_func, \
-    SetupFuncType, IngestionFuncType, get_wrapped_func_attr, MatrixWithIdsFragmentManager
+from ray_search import VectorizerActor, Vectorizers, SearchActor, Searchers
 from ray_search.index import MatrixWithIds, DistanceThreshold
 from ray_search.sinks import SinkConfiguration
-from ray_search.utils import window_iter, Memory, SearchResult
+from ray_search.utils import window_iter, Memory, SearchResult, RayCluster
+from ray_search.vectorizers import MatrixWithIdsFragmentManager, \
+    get_wrapped_func_attr, is_vectorizer_func, VectorizerConfig
 
 
 class Runner(abc.ABC):
@@ -22,6 +23,10 @@ class Runner(abc.ABC):
         pass
 
 
+def remove_nones(data: Dict[str, Any]) -> Dict[str, Any]:
+    return {k: v for k, v in data.items() if v is not None}
+
+
 class RayChunkedActorBuilder(Runner):
 
     def __init__(self):
@@ -31,6 +36,20 @@ class RayChunkedActorBuilder(Runner):
         self._cpus_per_worker = 1
         self._memory_per_worker: Memory = Memory.in_gb(1)
         self._actor_class = None
+        self._cluster: Optional[RayCluster] = None
+        self._num_gpu_per_worker = None
+
+    def with_cluster(self, cluster: RayCluster):
+        self._cluster = cluster
+        return self
+
+    def with_gpu(self):
+        self._num_gpu_per_worker = 1
+        return self
+
+    def with_num_gpu_per_worker(self, num_gpus: int):
+        self._num_gpu_per_worker = num_gpus
+        return self
 
     def with_workers(self, workers: int) -> 'RayChunkedActorBuilder':
         self._num_workers = workers
@@ -45,25 +64,25 @@ class RayChunkedActorBuilder(Runner):
         self._memory_per_worker = memory
         return self
 
-    def with_chunk_size(self, chunk_size: int) -> 'RayChunkedActorBuilder':
+    def with_text_chunk_size(self, chunk_size: int) -> 'RayChunkedActorBuilder':
         assert chunk_size % 2 == 0, "Chunk size must be multiple of 2, try 128 or 256 or 1024"
         self._chunk_size = chunk_size
         return self
 
-    def as_64_chunk(self) -> 'RayChunkedActorBuilder':
-        self.with_chunk_size(64)
+    def as_64_text_chunks(self) -> 'RayChunkedActorBuilder':
+        self.with_text_chunk_size(64)
         return self
 
-    def as_256_chunk(self) -> 'RayChunkedActorBuilder':
-        self.with_chunk_size(256)
+    def as_256_text_chunks(self) -> 'RayChunkedActorBuilder':
+        self.with_text_chunk_size(256)
         return self
 
-    def as_512_chunk(self) -> 'RayChunkedActorBuilder':
-        self.with_chunk_size(512)
+    def as_512_text_chunks(self) -> 'RayChunkedActorBuilder':
+        self.with_text_chunk_size(512)
         return self
 
-    def as_1024_chunk(self) -> 'RayChunkedActorBuilder':
-        self.with_chunk_size(1024)
+    def as_1024_text_chunks(self) -> 'RayChunkedActorBuilder':
+        self.with_text_chunk_size(1024)
         return self
 
     def with_limit(self, limit: int) -> 'RayChunkedActorBuilder':
@@ -169,8 +188,12 @@ class SearchBuilder(RayChunkedActorBuilder):
         assert self._actor_class is not None, "Search strategy must be provided, please use with_searcher(...)"
 
     def _run(self):
-        #
-        ray_actor = ray.remote(num_cpus=self._cpus_per_worker, memory=self._memory_per_worker.bytes)(self._actor_class)
+        ray_remote_settings_func = ray.remote(**remove_nones({
+            "num_cpus": self._cpus_per_worker,
+            "memory": self._memory_per_worker.bytes,
+            "num_gpus": self._num_gpu_per_worker,
+        }))
+        ray_actor = ray_remote_settings_func(self._actor_class)
         matrix_remote = ray.put(self._matrix)  # only need one instance of this object
         search_actors = [ray_actor.remote(matrix_remote) for _ in range(self._num_workers)]
         results = []
@@ -207,6 +230,7 @@ class ChunkableProxy:
             else:
                 return self.item[r.start:r.stop]
 
+
 class SearchMatrixBuilder(RayChunkedActorBuilder):
 
     def __init__(self):
@@ -215,6 +239,7 @@ class SearchMatrixBuilder(RayChunkedActorBuilder):
         self._texts = None
         self._setup_hook = None
         self._ingest_content_chunk_func = None
+        self._vectorizer_config: Optional[VectorizerConfig] = None
 
     def with_content(self, ids: List[str], texts: List[str]) -> 'SearchMatrixBuilder':
         assert len(ids) == len(texts), "Make sure id list and text list is equal"
@@ -229,8 +254,9 @@ class SearchMatrixBuilder(RayChunkedActorBuilder):
                 get_wrapped_func_attr(self._ingest_content_chunk_func, "produces_dense_vectors")
         return False
 
-    def with_vectorizer(self, index_class: Type[VectorizerActor]):
-        self._actor_class = index_class
+    def with_vectorizer(self, cfg: VectorizerConfig):
+        self._actor_class = cfg._vectorizer_klass
+        self._vectorizer_config = cfg
         return self
 
     def validate(self):
@@ -242,25 +268,21 @@ class SearchMatrixBuilder(RayChunkedActorBuilder):
                 f"with_setup_hook and with_ingest_func"
             assert is_vectorizer_func(self._ingest_content_chunk_func), "Please use the vectorizer decorator"
 
-    def with_setup_hook(self, setup_hook: Optional[SetupFuncType]) -> 'SearchMatrixBuilder':
-        self._setup_hook = setup_hook
-        return self
-
-    def with_ingest_func(self, ingest_content_chunk_func: Optional[IngestionFuncType]) \
-            -> 'SearchMatrixBuilder':
-        self._ingest_content_chunk_func = ingest_content_chunk_func
-        return self
-
     def make_content_map(self):
         return dict(zip(self._ids, self._texts))
 
     def _run(self, merge=True) -> MatrixWithIds:
-        # print(f"Running {self}")
         # make actors dynamically, and if limit is there do not more actors than the limit
-        ray_actor = ray.remote(num_cpus=self._cpus_per_worker, memory=self._memory_per_worker.bytes)(self._actor_class)
-        actor_args = [self._setup_hook, self._ingest_content_chunk_func]
+        if self._num_gpu_per_worker is not None:
+            self._vectorizer_config = self._vectorizer_config.with_cuda()
+        ray_remote_settings_func = ray.remote(**remove_nones({
+            "num_cpus": self._cpus_per_worker,
+            "memory": self._memory_per_worker.bytes,
+            "num_gpus": self._num_gpu_per_worker,
+        }))
+        ray_actor = ray_remote_settings_func(self._vectorizer_config.vectorizer_class)
         if self._actor_class.supports_chunking() is False:
-            matrix_actors = [ray_actor.remote(*actor_args)]
+            matrix_actors = [ray_actor.remote(self._vectorizer_config)]
             if self._limit is not None:
                 matrix_actors[0].ingest_texts.remote(self._ids[0:self._limit], self._texts[0:self._limit])
             else:
@@ -268,7 +290,7 @@ class SearchMatrixBuilder(RayChunkedActorBuilder):
         else:
             num_actors = self._num_workers if self._limit is None else min(self._num_workers, self._limit)
             num_actors = min(num_actors, len(self._ids))
-            matrix_actors = [ray_actor.remote(*actor_args) for _ in range(num_actors)]
+            matrix_actors = [ray_actor.remote(self._vectorizer_config) for _ in range(num_actors)]
             for idx, window in enumerate(window_iter(self._limit or len(self._ids), self._chunk_size)):
                 ids = self._ids[window.start:window.end]
                 texts = ChunkableProxy(self._texts)[window.start:window.end]
