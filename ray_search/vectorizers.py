@@ -154,7 +154,8 @@ class SpladeVectorizer(VectorizerActor):
 
     def __init__(self, *args):
         super().__init__(*args)
-        self.ingest_chunk_size = self.config._result_chunk_size or self.get_chunk_size_by_vm_type()  # overwrite chunksize
+        self.ingest_chunk_size = self.config._result_chunk_size or \
+                                 self.get_chunk_size_by_vm_type()  # overwrite chunksize
         self.model_id = self.config._model_id or 'naver/splade-cocondenser-ensembledistil'
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_id)
         self.model = AutoModelForMaskedLM.from_pretrained(self.model_id)
