@@ -6,8 +6,13 @@ and currently experimental. The apis will break. Please use at your own peril.
 
 ## Quick install
 
-```shell
+```sh
 pip install git+https://github.com/stikkireddy/ray-search.git
+```
+
+Additionally please install faiss-cpu or faiss-gpu for indexing
+```sh
+pip install faiss-cpu
 ```
 
 ## Start long term ray session locally to access dashboard and test locally
