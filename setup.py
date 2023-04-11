@@ -21,7 +21,7 @@ setup(
         'scipy>=1.10.1',
         'cloudpickle>=2.2.1',
         'chromadb>=0.3.21',
-        'setuptools==45',
+        'setuptools>=67',
     ],
     extras_require={
         'cpu': ['faiss-cpu>=1.7.3'],
