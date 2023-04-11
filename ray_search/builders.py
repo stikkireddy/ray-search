@@ -274,6 +274,8 @@ class SearchMatrixBuilder(RayChunkedActorBuilder):
 
     def _run(self, merge=True) -> MatrixWithIds:
         # make actors dynamically, and if limit is there do not more actors than the limit
+        if self._vectorizer_config._use_gpu is True:
+            self.with_gpu()
         if self._num_gpu_per_worker is not None:
             self._vectorizer_config = self._vectorizer_config.with_cuda()
         ray_remote_settings_func = ray.remote(**remove_nones({
