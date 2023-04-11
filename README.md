@@ -1,5 +1,14 @@
 # ray-search
 
+Simple library using a builder pattern to solve for top-k search and building text indexes in parallel across multiple nodes. 
+It uses apache ray under the hood and is primarily designed to run on databricks clusters. It is a work in progress 
+and currently experimental. The apis will break. Please use at your own peril.
+
+## Quick install
+
+```shell
+pip install git+https://github.com/stikkireddy/ray-search.git
+```
 
 ## Start long term ray session locally to access dashboard and test locally
 
